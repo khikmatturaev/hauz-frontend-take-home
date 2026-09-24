@@ -1,8 +1,13 @@
-import type { QueryClient } from '@tanstack/react-query';
-import { HeadContent, Scripts, createRootRouteWithContext, useNavigate } from '@tanstack/react-router';
-import appCss from '../styles.css?url';
-import { getCurrentUser, logout } from '#/lib/server/auth';
-import { getPersonalAccount } from '#/lib/server/personal-account';
+import type { QueryClient } from '@tanstack/react-query'
+import {
+  HeadContent,
+  Scripts,
+  createRootRouteWithContext,
+  useNavigate,
+} from '@tanstack/react-router'
+import appCss from '../styles.css?url'
+import { logout } from '#/lib/server/auth'
+import { authStateQueryOptions } from '#/lib/client/auth-state'
 
 export interface RouterContext {
   queryClient: QueryClient
@@ -13,33 +18,17 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'HAUZ' },
+      { title: 'HAUZ — Find your place' },
     ],
     links: [{ rel: 'stylesheet', href: appCss }],
   }),
 
   // Load the current user on the server before the application
   // renders. This keeps the header correct after a hard refresh.
-  beforeLoad: async () => {
-    // Load authentication state on the server first so the header
-    // has the correct signed-in/signed-out state on the first paint.
-    const user = await getCurrentUser()
-
-    if (!user) {
-      return {
-        user: null,
-        account: null,
-      }
-    }
-
-    // The display name comes from Personal Account because onboarding
-    // stores the user's first name there, not in the Appwrite User name.
-    const account = await getPersonalAccount()
-
-    return {
-      user,
-      account,
-    }
+  beforeLoad: async ({ context }) => {
+    // Auth state is shared through the request-scoped TanStack Query cache.
+    // This avoids repeating Appwrite requests on every client-side navigation.
+    return context.queryClient.ensureQueryData(authStateQueryOptions())
   },
 
   shellComponent: RootDocument,
@@ -52,7 +41,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {/* The header is rendered above every route's page content. */}
         <Header />
         {children}
         <Scripts />
@@ -62,8 +50,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function Header() {
-  const navigate = useNavigate();
-  const { user, account } = Route.useRouteContext();
+  const navigate = useNavigate()
+  const { user, account } = Route.useRouteContext()
 
   const handleLogout = async () => {
     try {
@@ -78,53 +66,53 @@ function Header() {
   }
 
   return (
-    <header>
-      <nav>
-        <a href="/">HAUZ</a>
+    <header className="site-header">
+      <nav className="site-nav" aria-label="Main navigation">
+        <a className="brand" href="/" aria-label="HAUZ home">
+          <span className="brand-mark">H</span>
+          <span>HAUZ</span>
+        </a>
 
-        {user ? (
-          <div>
-            <span>{account?.firstName || user.email}</span>
+        <div className="header-actions">
+          {user ? (
+            <>
+              <div className="user-chip">
+                <span className="user-avatar">
+                  {(account?.firstName || user.email).charAt(0).toUpperCase()}
+                </span>
+                <span className="user-name">{account?.firstName || user.email}</span>
+              </div>
+              <button className="button button-ghost" type="button" onClick={() => void handleLogout()}>
+                Log out
+              </button>
+            </>
+          ) : (
+            <button
+              className="button button-dark"
+              type="button"
+              onClick={() => {
+                const currentPath =
+                  window.location.pathname + window.location.search
 
-            <button type="button" onClick={() => void handleLogout()}>
-              Log out
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              // Keep the original destination when the user came from a
-              // protected or non-home page. The home page itself does not
-              // need an explicit redirect because sign-in should decide
-              // whether the user needs onboarding or should go to profile.
-              const currentPath =
-                window.location.pathname + window.location.search
+                if (currentPath === '/') {
+                  void navigate({
+                    to: '/sign-in',
+                    search: { redirect: undefined },
+                  })
+                  return
+                }
 
-              if (currentPath === '/') {
-                // The home page does not need a redirect destination.
-                // An empty redirect tells sign-in to choose between
-                // onboarding and profile based on the Personal Account.
                 void navigate({
                   to: '/sign-in',
-                  search: {
-                    redirect: undefined,
-                  },
+                  search: { redirect: currentPath },
                 })
-                return
-              }
-
-              void navigate({
-                to: '/sign-in',
-                search: {
-                  redirect: currentPath,
-                },
-              })
-            }}
-          >
-            Sign in
-          </button>
-        )}
+              }}
+            >
+              Sign in
+              <span aria-hidden="true">→</span>
+            </button>
+          )}
+        </div>
       </nav>
     </header>
   )

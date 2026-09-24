@@ -1,44 +1,28 @@
-import {
-  createFileRoute,
-  redirect,
-  useRouter,
-} from '@tanstack/react-router'
+import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-import { getCurrentUser } from '#/lib/server/auth'
-import {
-  getPersonalAccount,
-  updatePersonalAccount,
-} from '#/lib/server/personal-account'
+import { updatePersonalAccount } from '#/lib/server/personal-account'
+import { authStateQueryKey, authStateQueryOptions } from '#/lib/client/auth-state'
 
 export const Route = createFileRoute('/profile')({
-  beforeLoad: async () => {
-    // The profile is available only to authenticated users.
-    // Authentication is checked on the server before the page renders.
-    const user = await getCurrentUser()
+  beforeLoad: async ({ context }) => {
+    const { user, account } = await context.queryClient.ensureQueryData(
+      authStateQueryOptions(),
+    )
 
     if (!user) {
       throw redirect({
         to: '/sign-in',
-        search: {
-          redirect: '/profile',
-        },
+        search: { redirect: '/profile' },
       })
     }
 
-    const account = await getPersonalAccount()
-
-    // An authenticated user without a Personal Account must
-    // complete onboarding before accessing the profile.
     if (!account) {
-      throw redirect({
-        to: '/onboarding',
-      })
+      throw redirect({ to: '/onboarding' })
     }
 
-    return {
-      account,
-    }
+    return { account }
   },
 
   component: ProfilePage,
@@ -46,6 +30,7 @@ export const Route = createFileRoute('/profile')({
 
 function ProfilePage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { account } = Route.useRouteContext()
 
   const [firstName, setFirstName] = useState(account.firstName)
@@ -54,7 +39,6 @@ function ProfilePage() {
     account.contactEmail ?? '',
   )
   const [bio, setBio] = useState(account.bio ?? '')
-
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -70,12 +54,10 @@ function ProfilePage() {
   }, [account])
 
   const handleCancel = () => {
-    // Restore the last server-saved values when editing is cancelled.
     setFirstName(account.firstName)
     setLastName(account.lastName)
     setContactEmail(account.contactEmail ?? '')
     setBio(account.bio ?? '')
-
     setError(null)
     setSuccess(false)
     setIsEditing(false)
@@ -84,7 +66,6 @@ function ProfilePage() {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    // Prevent duplicate save requests.
     if (isSaving) {
       return
     }
@@ -94,20 +75,27 @@ function ProfilePage() {
     setIsSaving(true)
 
     try {
-      await updatePersonalAccount({
+      const updatedAccount = await updatePersonalAccount({
         data: {
           firstName,
           lastName,
-
-          // Optional fields are explicitly converted to null when
-          // cleared, so the backend removes their stored values.
           contactEmail: contactEmail.trim() || null,
           bio: bio.trim() || null,
         },
-      });
+      })
 
-      // Refresh the route data from the server so `account` becomes
-      // the new source of truth without a browser page refresh.
+      // Update the shared auth cache with the confirmed server result.
+      // The next route read can reuse it without another Appwrite request.
+      queryClient.setQueryData(authStateQueryKey, (current) =>
+        current
+          ? {
+            ...current,
+            account: updatedAccount,
+          }
+          : current,
+      )
+
+      // Refresh route context without triggering another network request.
       await router.invalidate()
 
       setSuccess(true)
@@ -120,150 +108,177 @@ function ProfilePage() {
   }
 
   return (
-    <main>
-      <div>
-        <div>
-          <h1>Profile</h1>
-          <p>Manage your personal account information.</p>
+    <main className="page profile-page">
+      <section className="profile-shell">
+        <div className="profile-hero">
+          <div>
+            <span className="eyebrow">PERSONAL ACCOUNT</span>
+            <h1>Your profile.</h1>
+            <p>Keep the details that represent you on HAUZ up to date.</p>
+          </div>
+
+          <div className="profile-avatar-large" aria-hidden="true">
+            {account.firstName.charAt(0).toUpperCase()}
+            {account.lastName.charAt(0).toUpperCase()}
+          </div>
         </div>
 
-        {!isEditing ? (
-          <div>
+        <div className="profile-card">
+          <div className="profile-card-top">
             <div>
-              <strong>First name</strong>
-              <p>{account.firstName}</p>
+              <span className="section-label">ACCOUNT DETAILS</span>
+              <h2>{account.firstName} {account.lastName}</h2>
             </div>
-
-            <div>
-              <strong>Last name</strong>
-              <p>{account.lastName}</p>
-            </div>
-
-            <div>
-              <strong>Role</strong>
-              <p>
-                {account.role === 'property_owner'
-                  ? 'Property Owner'
-                  : 'Realtor'}
-              </p>
-            </div>
-
-            <div>
-              <strong>Contact email</strong>
-              <p>{account.contactEmail || 'Not provided'}</p>
-            </div>
-
-            <div>
-              <strong>Bio</strong>
-              <p>{account.bio || 'Not provided'}</p>
-            </div>
-
-            {success ? (
-              <p role="status">Profile updated successfully.</p>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => {
-                setError(null)
-                setSuccess(false)
-                setIsEditing(true)
-              }}
-            >
-              Edit profile
-            </button>
+            <span className="role-badge">
+              {account.role === 'property_owner' ? 'Property Owner' : 'Realtor'}
+            </span>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <div>
-              <label htmlFor="profile-first-name">First name</label>
-              <input
-                id="profile-first-name"
-                name="firstName"
-                type="text"
-                autoComplete="given-name"
-                value={firstName}
-                onChange={(event) => setFirstName(event.target.value)}
-                required
-                disabled={isSaving}
-              />
-            </div>
 
-            <div>
-              <label htmlFor="profile-last-name">Last name</label>
-              <input
-                id="profile-last-name"
-                name="lastName"
-                type="text"
-                autoComplete="family-name"
-                value={lastName}
-                onChange={(event) => setLastName(event.target.value)}
-                required
-                disabled={isSaving}
-              />
-            </div>
+          {!isEditing ? (
+            <>
+              <div className="profile-details">
+                <div className="detail-item">
+                  <span>First name</span>
+                  <strong>{account.firstName}</strong>
+                </div>
+                <div className="detail-item">
+                  <span>Last name</span>
+                  <strong>{account.lastName}</strong>
+                </div>
+                <div className="detail-item">
+                  <span>Contact email</span>
+                  <strong>{account.contactEmail || 'Not provided'}</strong>
+                </div>
+                <div className="detail-item detail-item-wide">
+                  <span>Bio</span>
+                  <strong>{account.bio || 'Not provided'}</strong>
+                </div>
+              </div>
 
-            <div>
-              <label htmlFor="profile-role">Role</label>
-              <input
-                id="profile-role"
-                type="text"
-                value={
-                  account.role === 'property_owner'
-                    ? 'Property Owner'
-                    : 'Realtor'
-                }
-                disabled
-                readOnly
-              />
-            </div>
+              {success ? (
+                <p className="form-message form-message-success" role="status">
+                  Profile updated successfully.
+                </p>
+              ) : null}
 
-            <div>
-              <label htmlFor="profile-contact-email">Contact email</label>
-              <input
-                id="profile-contact-email"
-                name="contactEmail"
-                type="email"
-                autoComplete="email"
-                value={contactEmail}
-                onChange={(event) => setContactEmail(event.target.value)}
-                disabled={isSaving}
-              />
-            </div>
+              <div className="profile-card-actions">
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={() => {
+                    setError(null)
+                    setSuccess(false)
+                    setIsEditing(true)
+                  }}
+                >
+                  Edit profile
+                  <span aria-hidden="true">↗</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            <form className="profile-form" onSubmit={handleSubmit}>
+              <div className="field-grid">
+                <div className="field">
+                  <label htmlFor="profile-first-name">First name</label>
+                  <input
+                    className="text-input"
+                    id="profile-first-name"
+                    name="firstName"
+                    type="text"
+                    autoComplete="given-name"
+                    value={firstName}
+                    onChange={(event) => setFirstName(event.target.value)}
+                    required
+                    disabled={isSaving}
+                  />
+                </div>
 
-            <div>
-              <label htmlFor="profile-bio">Bio</label>
-              <textarea
-                id="profile-bio"
-                name="bio"
-                value={bio}
-                onChange={(event) => setBio(event.target.value)}
-                disabled={isSaving}
-                rows={5}
-              />
-            </div>
+                <div className="field">
+                  <label htmlFor="profile-last-name">Last name</label>
+                  <input
+                    className="text-input"
+                    id="profile-last-name"
+                    name="lastName"
+                    type="text"
+                    autoComplete="family-name"
+                    value={lastName}
+                    onChange={(event) => setLastName(event.target.value)}
+                    required
+                    disabled={isSaving}
+                  />
+                </div>
+              </div>
 
-            {error ? <p role="alert">{error}</p> : null}
+              <div className="field">
+                <label htmlFor="profile-role">Role</label>
+                <div className="readonly-field">
+                  <span>{account.role === 'property_owner' ? 'Property Owner' : 'Realtor'}</span>
+                  <small>Role is fixed after account creation.</small>
+                </div>
+              </div>
 
-            <div>
-              <button
-                type="submit"
-                disabled={isSaving}
-              >
-                {isSaving ? 'Saving...' : 'Save changes'}
-              </button>
+              <div className="field">
+                <label htmlFor="profile-contact-email">Contact email</label>
+                <input
+                  className="text-input"
+                  id="profile-contact-email"
+                  name="contactEmail"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={contactEmail}
+                  onChange={(event) => setContactEmail(event.target.value)}
+                  disabled={isSaving}
+                />
+              </div>
 
-              <button
-                type="button"
-                onClick={handleCancel}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
+              <div className="field">
+                <label htmlFor="profile-bio">Bio</label>
+                <textarea
+                  className="text-input textarea"
+                  id="profile-bio"
+                  name="bio"
+                  placeholder="Tell us a little about yourself…"
+                  value={bio}
+                  onChange={(event) => setBio(event.target.value)}
+                  disabled={isSaving}
+                  rows={5}
+                />
+              </div>
+
+              {error ? (
+                <p className="form-message form-message-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+
+              <div className="form-actions form-actions-end">
+                <button
+                  className="button button-ghost"
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={isSaving}
+                >
+                  Cancel
+                </button>
+                <button className="button button-primary" type="submit" disabled={isSaving}>
+                  {isSaving ? 'Saving…' : 'Save changes'}
+                  {!isSaving ? <span aria-hidden="true">→</span> : null}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        <div className="profile-security-note">
+          <span className="security-icon">✦</span>
+          <div>
+            <strong>Your account is private by default.</strong>
+            <span>Authentication and profile changes are handled securely on the server.</span>
+          </div>
+        </div>
+      </section>
     </main>
   )
 }
