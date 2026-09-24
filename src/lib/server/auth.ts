@@ -5,7 +5,6 @@ import { setCookie, getCookie } from '@tanstack/react-start/server';
 import { createAppwriteAdminClient, createAppwriteSessionClient } from './appwrite';
 
 const OTP_USER_COOKIE = 'hauz_otp_user';
-const OTP_SECRET_COOKIE = 'hauz_otp_secret';
 const OTP_COOKIE_MAX_AGE = 10 * 60 // 10 minutes in seconds
 
 // Authenticated Appwrite session secret is kept in an HttpOnly cookie.
@@ -37,13 +36,6 @@ export const requestEmailOtp = createServerFn({ method: 'POST' })
             path: '/',
             maxAge: OTP_COOKIE_MAX_AGE,
         })
-        setCookie(OTP_SECRET_COOKIE, token.secret, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: OTP_COOKIE_MAX_AGE,
-        })
 
         return {
             expire: token.expire,
@@ -53,43 +45,37 @@ export const requestEmailOtp = createServerFn({ method: 'POST' })
 
 export const verifyEmailOtp = createServerFn({ method: 'POST' })
     .validator(verifyEmailOtpSchema)
-    .handler(async () => {
-        // OTP request vaqtida server tomonidan yaratilgan
-        // userId va secret faqat HttpOnly cookie'dan olinadi.
+    .handler(async ({ data }) => {
+        // The user ID is kept in an HttpOnly cookie from the
+        // initial OTP request.
         const userId = getCookie(OTP_USER_COOKIE)
-        const secret = getCookie(OTP_SECRET_COOKIE)
 
-        if (!userId || !secret) {
+        if (!userId) {
             throw new Error('OTP session expired or not found')
         }
 
         const { account } = createAppwriteAdminClient()
 
-        // Appwrite OTP secret orqali authenticated session yaratadi.
+        // The 6-digit code entered by the user is passed to Appwrite
+        // as the token secret. Appwrite validates the OTP itself.
         const session = await account.createSession({
             userId,
-            secret,
+            secret: data.code,
         })
 
-        // Appwrite session secret browserga oddiy response sifatida
-        // yuborilmaydi; u faqat HttpOnly cookie'da saqlanadi.
+        // Store the authenticated Appwrite session secret in an
+        // HttpOnly cookie so client-side JavaScript cannot access it.
         setCookie(SESSION_COOKIE, session.secret, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             path: '/',
+            maxAge: 60 * 60 * 24 * 30,
         })
 
-        // OTP uchun ishlatilgan vaqtinchalik cookie'larni o'chiramiz.
+        // The temporary OTP user ID is no longer needed after
+        // the authenticated session has been created.
         setCookie(OTP_USER_COOKIE, '', {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 0,
-        })
-
-        setCookie(OTP_SECRET_COOKIE, '', {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
