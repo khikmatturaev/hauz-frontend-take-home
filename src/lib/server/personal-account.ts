@@ -24,6 +24,13 @@ const createPersonalAccountSchema = z.object({
     role: z.enum(['property_owner', 'realtor']),
 });
 
+const updatePersonalAccountSchema = z.object({
+    firstName: z.string().trim().min(1, 'First name is required'),
+    lastName: z.string().trim().min(1, 'Last name is required'),
+    contactEmail: z.string().email('Enter a valid email address').nullable(),
+    bio: z.string().trim().nullable(),
+})
+
 const executePersonalAccount = async (
     method: ExecutionMethod,
     path: string,
@@ -114,4 +121,29 @@ export const createPersonalAccount = createServerFn({ method: 'POST' })
         }
 
         throw new Error('Unable to create personal account')
+    })
+
+
+export const updatePersonalAccount = createServerFn({ method: 'POST' })
+    .validator(updatePersonalAccountSchema)
+    .handler(async ({ data }) => {
+        const result = await executePersonalAccount(
+            ExecutionMethod.PATCH,
+            '/personal-account',
+            {
+                firstName: data.firstName,
+                lastName: data.lastName,
+
+                // Empty optional values are converted to null so the
+                // backend actually removes the stored value.
+                contactEmail: data.contactEmail,
+                bio: data.bio,
+            },
+        )
+
+        if (result.statusCode !== 200) {
+            throw new Error('Unable to update personal account')
+        }
+
+        return accountResponseSchema.parse(result.body)
     })

@@ -1,19 +1,42 @@
 import { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { requestEmailOtp, verifyEmailOtp } from '#/lib/server/auth';
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
+import { getCurrentUser, requestEmailOtp, verifyEmailOtp } from '#/lib/server/auth';
+import { getPersonalAccount } from '#/lib/server/personal-account';
 
 export const Route = createFileRoute('/sign-in')({
   // Read the optional destination from the sign-in URL.
   validateSearch: (search) => ({
+    // Only allow same-origin relative paths.
+    // Reject protocol-relative URLs such as "//evil.com".
     redirect:
-      typeof search.redirect === 'string' && search.redirect.startsWith('/')
+      typeof search.redirect === 'string' &&
+        search.redirect.startsWith('/') &&
+        !search.redirect.startsWith('//')
         ? search.redirect
-        : '/',
+        : undefined,
   }),
+  beforeLoad: async () => {
+    // A signed-in user should never see the sign-in form again.
+    // Check the session on the server before rendering the page.
+    const user = await getCurrentUser()
+
+    if (!user) {
+      return
+    }
+
+    // Decide where an already authenticated user belongs.
+    // Users without a Personal Account must complete onboarding.
+    const account = await getPersonalAccount()
+
+    throw redirect({
+      to: account ? '/profile' : '/onboarding',
+    })
+  },
   component: SignInPage,
 })
 
 function SignInPage() {
+  const navigate = useNavigate();
   const { redirect } = Route.useSearch()
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
@@ -44,9 +67,7 @@ function SignInPage() {
     }
   }
 
-  const handleOtpSubmit = async (
-    event: React.FormEvent<HTMLFormElement>,
-  ) => {
+  const handleOtpSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     setError(null)
@@ -55,14 +76,20 @@ function SignInPage() {
     try {
       // The server reads the temporary OTP credentials from
       // HttpOnly cookies and creates the authenticated session.
-      await verifyEmailOtp({
-        data: {
-          code,
-        },
-      })
+      await verifyEmailOtp({ data: { code } });
 
-      // Return the user to the page they originally requested.
-      window.location.assign(redirect)
+      // If another protected page originally sent the user to sign-in,
+      // return to that exact page after authentication.
+      if (redirect) {
+        void navigate({ to: redirect });
+        return;
+      }
+
+      // When there is no explicit redirect, decide where the user belongs
+      // based on whether a Personal Account already exists.
+      const account = await getPersonalAccount();
+
+      void navigate({ to: account ? '/profile' : '/onboarding' });
     } catch {
       setError('Invalid or expired verification code.')
     } finally {
