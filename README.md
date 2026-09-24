@@ -103,11 +103,11 @@ One Appwrite Function with three routes. It is deployed with **Execute access:
 users**, which means a signed-in Appwrite user can execute it and a guest
 cannot.
 
-| Route | Body | Result |
-|---|---|---|
-| `GET /personal-account` | | `200` with the account, `404` if the caller has none |
-| `POST /personal-account` | `firstName`, `lastName`, `role` | `201` created, `200` if it already exists, `409` if it exists with a different role |
-| `PATCH /personal-account` | any of `firstName`, `lastName`, `contactEmail`, `bio` | `200` with the updated account |
+| Route                     | Body                                                  | Result                                                                              |
+| ------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET /personal-account`   |                                                       | `200` with the account, `404` if the caller has none                                |
+| `POST /personal-account`  | `firstName`, `lastName`, `role`                       | `201` created, `200` if it already exists, `409` if it exists with a different role |
+| `PATCH /personal-account` | any of `firstName`, `lastName`, `contactEmail`, `bio` | `200` with the updated account                                                      |
 
 `role` is either `property_owner` or `realtor`.
 
@@ -126,3 +126,35 @@ it if you need to, but say why in `NOTES.md`.
 Appwrite Cloud sends the sign-in codes from its own mail server on the free
 plan. Check your spam folder. If nothing arrives after a few minutes, Cloud may
 be rate limiting you, so wait and retry rather than clicking send repeatedly.
+
+---
+
+## Candidate implementation
+
+The starter repository was extended with the complete authentication,
+onboarding, personal account and profile flow required by the take-home task.
+
+### Authentication flow
+
+The application uses Appwrite Email OTP through TanStack Start server functions.
+
+The browser never receives or reads the Appwrite API key or session secret.
+The authenticated Appwrite session secret is stored in an HttpOnly cookie.
+
+The main authentication flow is:
+
+```text
+Sign in
+  ↓
+Enter email
+  ↓
+Receive Appwrite OTP
+  ↓
+Enter 6-digit code
+  ↓
+Authenticated session
+  ↓
+Personal Account exists?
+  ├── Yes → /profile
+  └── No  → /onboarding
+```

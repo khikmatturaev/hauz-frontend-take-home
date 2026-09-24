@@ -31,11 +31,7 @@ const updatePersonalAccountSchema = z.object({
     bio: z.string().trim().nullable(),
 })
 
-const executePersonalAccount = async (
-    method: ExecutionMethod,
-    path: string,
-    body?: Record<string, unknown>,
-) => {
+const executePersonalAccount = async (method: ExecutionMethod, path: string, body?: Record<string, unknown>) => {
     const sessionSecret = getCookie(SESSION_COOKIE)
 
     if (!sessionSecret) throw new Error('Authentication required');
@@ -77,48 +73,25 @@ export const getPersonalAccount = createServerFn({ method: 'GET' })
         // Any response other than 200 is treated as an error.
         if (result.statusCode !== 200) throw new Error('Unable to load personal account');
 
-        // Temporary debug: inspect the exact response returned
-        // by the Personal Account Appwrite Function.
-        console.log('GET personal account response:', {
-            statusCode: result.statusCode,
-            body: result.body,
-        })
-
-
         return accountResponseSchema.parse(result.body)
     })
 
 export const createPersonalAccount = createServerFn({ method: 'POST' })
     .validator(createPersonalAccountSchema)
     .handler(async ({ data }) => {
-        const result = await executePersonalAccount(
-            ExecutionMethod.POST,
-            '/personal-account',
-            {
-                firstName: data.firstName,
-                lastName: data.lastName,
-                role: data.role,
-            },
-        )
+        const result = await executePersonalAccount(ExecutionMethod.POST, '/personal-account', {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: data.role,
+        })
 
         // 201 = account yangi yaratildi.
         // 200 = account oldindan mavjud edi.
-        if (result.statusCode === 201 || result.statusCode === 200) {
-            // Temporary debug: inspect the exact Appwrite Function response
-            // before applying the account response schema.
-            console.log('Personal account response:', {
-                statusCode: result.statusCode,
-                body: result.body,
-            })
-
-            return accountResponseSchema.parse(result.body)
-        }
+        if (result.statusCode === 201 || result.statusCode === 200) return accountResponseSchema.parse(result.body)
 
         // Function boshqa role bilan mavjud account topilganda
         // 409 qaytaradi. Role onboardingdan keyin o'zgartirilmaydi.
-        if (result.statusCode === 409) {
-            throw new Error('Personal account already exists with another role')
-        }
+        if (result.statusCode === 409) throw new Error('Personal account already exists with another role')
 
         throw new Error('Unable to create personal account')
     })
@@ -127,23 +100,17 @@ export const createPersonalAccount = createServerFn({ method: 'POST' })
 export const updatePersonalAccount = createServerFn({ method: 'POST' })
     .validator(updatePersonalAccountSchema)
     .handler(async ({ data }) => {
-        const result = await executePersonalAccount(
-            ExecutionMethod.PATCH,
-            '/personal-account',
-            {
-                firstName: data.firstName,
-                lastName: data.lastName,
+        const result = await executePersonalAccount(ExecutionMethod.PATCH, '/personal-account', {
+            firstName: data.firstName,
+            lastName: data.lastName,
 
-                // Empty optional values are converted to null so the
-                // backend actually removes the stored value.
-                contactEmail: data.contactEmail,
-                bio: data.bio,
-            },
-        )
+            // Empty optional values are converted to null so the
+            // backend actually removes the stored value.
+            contactEmail: data.contactEmail,
+            bio: data.bio,
+        })
 
-        if (result.statusCode !== 200) {
-            throw new Error('Unable to update personal account')
-        }
+        if (result.statusCode !== 200) throw new Error('Unable to update personal account')
 
         return accountResponseSchema.parse(result.body)
     })

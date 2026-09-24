@@ -1,10 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import {
-  HeadContent,
-  Scripts,
-  createRootRouteWithContext,
-  useNavigate,
-} from '@tanstack/react-router';
+import { HeadContent, Scripts, createRootRouteWithContext, useNavigate } from '@tanstack/react-router';
 import appCss from '../styles.css?url';
 import { getCurrentUser, logout } from '#/lib/server/auth';
 import { getPersonalAccount } from '#/lib/server/personal-account';
